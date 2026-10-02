@@ -658,21 +658,23 @@ function iniciarAutoSync() {
           }
         }
       }).catch(function(){});
-    // Verifica salas e categorias
-    fetch(scriptUrl + '?action=getConfig')
-      .then(function(res){ return res.json(); })
-      .then(function(data) {
-        if (data && data.status === 'ok') {
-          var mudou = false;
-          if (data.salas && data.salas.length && data.salas.join(',') !== salas.join(',')) {
-            salas = data.salas; mudou = true;
+    // Verifica salas e categorias (só se não estiver na tela de config)
+    if (!document.getElementById('screen-config').classList.contains('active')) {
+      fetch(scriptUrl + '?action=getConfig')
+        .then(function(res){ return res.json(); })
+        .then(function(data) {
+          if (data && data.status === 'ok') {
+            var mudou = false;
+            if (data.salas && data.salas.length && data.salas.join(',') !== salas.join(',')) {
+              salas = data.salas; mudou = true;
+            }
+            if (data.categorias && data.categorias.length && data.categorias.join(',') !== categorias.join(',')) {
+              categorias = data.categorias; mudou = true;
+            }
+            if (mudou) { salvarLocal(); }
           }
-          if (data.categorias && data.categorias.length && data.categorias.join(',') !== categorias.join(',')) {
-            categorias = data.categorias; mudou = true;
-          }
-          if (mudou) { salvarLocal(); if (document.getElementById('screen-config').classList.contains('active')) renderConfig(); }
-        }
-      }).catch(function(){});
+        }).catch(function(){});
+    }
   }, 10000);
 }
 
@@ -682,6 +684,12 @@ function goTo(s) {
   document.querySelectorAll('.nav-btn').forEach(function(x){ x.classList.remove('active'); });
   document.getElementById('screen-'+s).classList.add('active');
   document.getElementById('nav-'+s).classList.add('active');
+  // Pausa auto-sync na tela de config para não sobrescrever edições
+  if (s === 'config') {
+    clearInterval(autoSyncTimer);
+  } else {
+    iniciarAutoSync();
+  }
   if (s==='home')   renderLista();
   if (s==='novo')   { preencherSelects('n-sala','n-cat'); document.getElementById('n-tec').value = sessao ? sessao.nome : ''; }
   if (s==='config') renderConfig();
@@ -1149,31 +1157,42 @@ function renderConfig() {
   document.getElementById('tags-cats').innerHTML=categorias.map(function(c,i){return '<span class="tag">'+c+'<button onclick="rmCat('+i+')">×</button></span>';}).join('');
   carregarUsuarios();
 }
+// Debounce para não salvar múltiplas vezes seguidas
+var configSaveTimer = null;
+function agendarSalvarConfig() {
+  clearTimeout(configSaveTimer);
+  configSaveTimer = setTimeout(function() {
+    postScriptSilent({action:'saveConfig', salas:salas, categorias:categorias});
+  }, 800);
+}
+
 function addSala(){
   var i=document.getElementById('inp-sala'),v=i.value.trim();
   if(!v)return;
+  if(salas.indexOf(v)!==-1){toast('⚠️ Sala já existe');i.value='';return;}
   salas.push(v);i.value='';
   salvarLocal();renderConfig();
   toast('✅ Sala adicionada');
-  postScriptSilent({action:'saveConfig',salas:salas,categorias:categorias});
+  agendarSalvarConfig();
 }
 function addCat(){
   var i=document.getElementById('inp-cat'),v=i.value.trim();
   if(!v)return;
+  if(categorias.indexOf(v)!==-1){toast('⚠️ Categoria já existe');i.value='';return;}
   categorias.push(v);i.value='';
   salvarLocal();renderConfig();
   toast('✅ Categoria adicionada');
-  postScriptSilent({action:'saveConfig',salas:salas,categorias:categorias});
+  agendarSalvarConfig();
 }
 function rmSala(i){
   if(!confirm('Remover "'+salas[i]+'"?'))return;
   salas.splice(i,1);salvarLocal();renderConfig();
-  postScriptSilent({action:'saveConfig',salas:salas,categorias:categorias});
+  agendarSalvarConfig();
 }
 function rmCat(i){
   if(!confirm('Remover "'+categorias[i]+'"?'))return;
   categorias.splice(i,1);salvarLocal();renderConfig();
-  postScriptSilent({action:'saveConfig',salas:salas,categorias:categorias});
+  agendarSalvarConfig();
 }
 function limparResolvidos(){
   var n=chamados.filter(function(c){return c.status==='resolvido';}).length;
