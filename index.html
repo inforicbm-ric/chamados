@@ -179,16 +179,16 @@ html,body{height:100%;background:var(--bg);font-family:-apple-system,BlinkMacSys
   .app{max-width:100%;flex-direction:row;height:100vh}
 
   /* Sidebar esquerda */
-  .nav{position:fixed;left:0;top:0;bottom:0;width:var(--sidebar);flex-direction:column;border-top:none;border-right:.5px solid var(--bdr);transform:none;height:100vh;padding:0;background:var(--surf);justify-content:flex-start;overflow:hidden}
-  .nav::before{content:'';display:block;background:var(--blue);padding:20px 16px;width:100%}
-  .nav-logo{display:block!important;padding:16px 20px;background:var(--blue-d);color:#fff;font-size:14px;font-weight:700;border-bottom:.5px solid rgba(255,255,255,.1);display:flex!important;align-items:center;gap:10px}
-  .nav-btn{flex:none;width:100%;flex-direction:row;justify-content:flex-start;padding:12px 20px;font-size:13px;font-weight:500;gap:10px;border-radius:0;color:var(--txt2)}
+  .nav{position:fixed;left:0;top:0;bottom:0;width:var(--sidebar);flex-direction:column;border-top:none;border-right:none;transform:none;height:100vh;padding:0;background:var(--blue-d);justify-content:flex-start;overflow:hidden;box-shadow:2px 0 16px rgba(0,0,0,0.18)}
+  .nav-logo{display:flex!important;align-items:center;gap:10px;padding:20px 20px 18px;background:transparent;color:#fff;font-size:14px;font-weight:700;border-bottom:1px solid rgba(255,255,255,.1)}
+  .nav-btn{flex:none;width:100%;flex-direction:row;justify-content:flex-start;padding:11px 20px;font-size:13px;font-weight:500;gap:12px;border-radius:0;color:rgba(255,255,255,.65);transition:all .15s;border-left:3px solid transparent}
   .nav-btn svg{width:20px;height:20px;flex-shrink:0}
-  .nav-btn.active{color:var(--blue);background:var(--blue-l)}
+  .nav-btn:hover{background:rgba(255,255,255,.08);color:#fff}
+  .nav-btn.active{color:#fff;background:rgba(255,255,255,.15);border-left:3px solid #fff}
   .nav-btn.hidden{display:none}
-  .nav-footer{margin-top:auto;border-top:.5px solid var(--bdr);width:100%}
-  .nav-user{padding:14px 20px;font-size:12px;color:var(--txt3);display:flex;align-items:center;gap:8px}
-  .nav-user strong{color:var(--txt);font-size:13px;display:block}
+  .nav-footer{margin-top:auto;border-top:1px solid rgba(255,255,255,.1);width:100%}
+  .nav-user{padding:14px 20px;font-size:11px;color:rgba(255,255,255,.5);display:flex;align-items:center;gap:8px}
+  .nav-user strong{color:#fff;font-size:13px;display:block}
 
   /* Header desktop */
   .hdr{position:fixed;left:var(--sidebar);right:0;top:0;z-index:20;padding:0 24px;height:60px;border-bottom:.5px solid rgba(255,255,255,.15)}
@@ -513,7 +513,9 @@ var editUserLogin = null;
 var autoSyncTimer = null;
 
 // Sessão do usuário logado
-var sessao = JSON.parse(sessionStorage.getItem('sessao')||'null');
+var sessao = JSON.parse(localStorage.getItem('sessao')||'null');
+var pendencias = JSON.parse(localStorage.getItem('pendencias')||'[]');
+var onlineAntes = navigator.onLine;
 
 // ===================== UTILITÁRIOS =====================
 function salvarLocal() {
@@ -571,7 +573,7 @@ async function fazerLogin() {
     var data = await res.json();
     if (data && data.status === 'ok') {
       sessao = { nome: data.nome, nivel: data.nivel, token: data.token, hora: Date.now() };
-      sessionStorage.setItem('sessao', JSON.stringify(sessao));
+      localStorage.setItem('sessao', JSON.stringify(sessao));
       iniciarApp();
     } else {
       mostrarErroLogin(data.message || 'Usuário ou senha incorretos.');
@@ -592,7 +594,7 @@ function mostrarErroLogin(msg) {
 function fazerLogout() {
   if (!confirm('Deseja sair do sistema?')) return;
   sessao = null;
-  sessionStorage.removeItem('sessao');
+  localStorage.removeItem('sessao');
   clearInterval(autoSyncTimer);
   document.getElementById('main-app').style.display  = 'none';
   document.getElementById('login-wrap').style.display = 'flex';
@@ -626,6 +628,9 @@ function iniciarAutoSync() {
   clearInterval(autoSyncTimer);
   autoSyncTimer = setInterval(function() {
     if (!scriptUrl || !sessao) return;
+    if (!navigator.onLine) return; // sem internet, não tenta
+    // Processa pendências primeiro se houver
+    if (pendencias.length) { processarPendencias(); return; }
     // Verifica chamados
     fetch(scriptUrl + '?action=getAll')
       .then(function(res){ return res.json(); })
@@ -685,8 +690,8 @@ function goTo(s) {
 // ===================== GOOGLE SHEETS =====================
 async function sincronizar() {
   if (!scriptUrl) return;
+  if (!navigator.onLine) { toast('📵 Sem internet — usando dados locais'); return; }
   try {
-    // Sincroniza chamados
     var res  = await fetch(scriptUrl + '?action=getAll');
     var data = await res.json();
     if (data && Array.isArray(data.chamados)) {
@@ -700,7 +705,6 @@ async function sincronizar() {
       });
       chamados = data.chamados;
     }
-    // Sincroniza salas e categorias
     var res2  = await fetch(scriptUrl + '?action=getConfig');
     var data2 = await res2.json();
     if (data2 && data2.status === 'ok') {
@@ -710,7 +714,7 @@ async function sincronizar() {
     salvarLocal();
     renderLista();
     toast('✅ ' + chamados.length + ' chamado(s) sincronizado(s)');
-  } catch(e) { toast('⚠️ Falha na sincronização'); }
+  } catch(e) { toast('⚠️ Falha na sincronização — usando dados locais'); }
 }
 
 async function postScript(payload) {
@@ -727,6 +731,12 @@ async function postScript(payload) {
 
 async function postScriptSilent(payload) {
   if (!scriptUrl) return false;
+  if (!navigator.onLine) {
+    // Sem internet — adiciona à fila de pendências
+    pendencias.push({ payload: payload, ts: Date.now() });
+    localStorage.setItem('pendencias', JSON.stringify(pendencias));
+    return false;
+  }
   try {
     await fetch(scriptUrl, {
       method: 'POST', mode: 'no-cors',
@@ -734,8 +744,48 @@ async function postScriptSilent(payload) {
       body: JSON.stringify(payload)
     });
     return true;
-  } catch(e) { return false; }
+  } catch(e) {
+    // Falhou mesmo com indicador online — guarda na fila
+    pendencias.push({ payload: payload, ts: Date.now() });
+    localStorage.setItem('pendencias', JSON.stringify(pendencias));
+    return false;
+  }
 }
+
+// Processa fila de pendências quando volta a internet
+async function processarPendencias() {
+  if (!pendencias.length || !scriptUrl) return;
+  toast('📡 Conexão restaurada — sincronizando ' + pendencias.length + ' item(s)...', 4000);
+  var restantes = [];
+  for (var i = 0; i < pendencias.length; i++) {
+    try {
+      await fetch(scriptUrl, {
+        method: 'POST', mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(pendencias[i].payload)
+      });
+    } catch(e) {
+      restantes.push(pendencias[i]);
+    }
+  }
+  pendencias = restantes;
+  localStorage.setItem('pendencias', JSON.stringify(pendencias));
+  if (!restantes.length) {
+    setTimeout(sincronizar, 1000);
+  }
+}
+
+// Monitor de conectividade
+window.addEventListener('online', function() {
+  if (!onlineAntes) {
+    onlineAntes = true;
+    processarPendencias();
+  }
+});
+window.addEventListener('offline', function() {
+  onlineAntes = false;
+  toast('📵 Sem internet — trabalhando offline', 3000);
+});
 
 async function salvarUrl() {
   var url = document.getElementById('cfg-url').value.trim();
@@ -1134,14 +1184,24 @@ function limparResolvidos(){
 }
 
 // ===================== INIT =====================
-// Se já tem sessão ativa (refresh da página), entra direto
+// Se já tem sessão salva, entra direto (funciona offline também)
 if (sessao && scriptUrl) {
   iniciarApp();
-} else if (scriptUrl) {
-  // URL já configurada, mostra login normalmente
-} else {
+  // Se tem internet e pendências, processa
+  if (navigator.onLine && pendencias.length) {
+    setTimeout(processarPendencias, 2000);
+  }
+} else if (sessao && !scriptUrl) {
+  // Tem sessão mas sem URL — mostra config
+  document.getElementById('cfg-hint').style.display = 'block';
+} else if (!scriptUrl) {
   // Primeira vez — mostra dica de configuração
   document.getElementById('cfg-hint').style.display = 'block';
+}
+// Indicador de status offline na tela de login
+if (!navigator.onLine && !sessao) {
+  document.getElementById('login-err').textContent = '📵 Sem internet — faça login quando conectado pela primeira vez.';
+  document.getElementById('login-err').classList.add('show');
 }
 </script>
 </body>
