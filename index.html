@@ -514,6 +514,18 @@ var autoSyncTimer = null;
 
 // Sessão do usuário logado
 var sessao = JSON.parse(localStorage.getItem('sessao')||'null');
+
+// Limpa salas/categorias duplicadas que possam ter ficado corrompidas
+(function() {
+  var s = JSON.parse(localStorage.getItem('salas')||'[]');
+  var c = JSON.parse(localStorage.getItem('categorias')||'[]');
+  var sUniq = s.filter(function(v,i,a){ return a.indexOf(v)===i && v; });
+  var cUniq = c.filter(function(v,i,a){ return a.indexOf(v)===i && v; });
+  if (sUniq.length !== s.length || cUniq.length !== c.length) {
+    localStorage.setItem('salas', JSON.stringify(sUniq));
+    localStorage.setItem('categorias', JSON.stringify(cUniq));
+  }
+})();
 var pendencias = JSON.parse(localStorage.getItem('pendencias')||'[]');
 var onlineAntes = navigator.onLine;
 
@@ -595,7 +607,7 @@ function fazerLogout() {
   if (!confirm('Deseja sair do sistema?')) return;
   sessao = null;
   localStorage.removeItem('sessao');
-  clearInterval(autoSyncTimer);
+  clearInterval(autoSyncTimer); clearInterval(configSyncTimer);
   document.getElementById('main-app').style.display  = 'none';
   document.getElementById('login-wrap').style.display = 'flex';
   document.getElementById('l-user').value = '';
@@ -624,58 +636,60 @@ function iniciarApp() {
 }
 
 // ===================== AUTO-SYNC =====================
+var configSyncTimer = null;
+
 function iniciarAutoSync() {
-  clearInterval(autoSyncTimer);
+  clearInterval(autoSyncTimer); clearInterval(configSyncTimer);
+  clearInterval(configSyncTimer);
+
+  // Chamados: sync a cada 5 segundos
   autoSyncTimer = setInterval(function() {
-    if (!scriptUrl || !sessao) return;
-    if (!navigator.onLine) return; // sem internet, não tenta
-    // Processa pendências primeiro se houver
+    if (!scriptUrl || !sessao || !navigator.onLine) return;
     if (pendencias.length) { processarPendencias(); return; }
-    // Verifica chamados
-    fetch(scriptUrl + '?action=getAll')
+    fetch(scriptUrl + '?action=getAll', { signal: AbortSignal.timeout(8000) })
       .then(function(res){ return res.json(); })
       .then(function(data) {
-        if (data && Array.isArray(data.chamados)) {
-          var remoteStr = data.chamados.map(function(c){
-            return c.id+c.status+c.sala+c.categoria+(c.descricao||'')+(c.prioridade||'')+(c.tecnico||'')+(c.fotosUrls||[]).length;
-          }).sort().join(',');
-          var localStr = chamados.map(function(c){
-            return c.id+c.status+c.sala+c.categoria+(c.descricao||'')+(c.prioridade||'')+(c.tecnico||'')+(c.fotosUrls||[]).length;
-          }).sort().join(',');
-          if (remoteStr !== localStr) {
-            data.chamados.forEach(function(remoto) {
-              var local = chamados.find(function(c){ return c.id === remoto.id; });
-              if (local && local.fotos && local.fotos.length && (!remoto.fotosUrls || !remoto.fotosUrls.length)) {
-                remoto.fotos = local.fotos;
-              } else if (remoto.fotosUrls && remoto.fotosUrls.length) {
-                remoto.fotos = remoto.fotosUrls;
-              }
-            });
-            chamados = data.chamados;
-            salvarLocal();
-            renderLista();
-            toast('🔄 Atualizado automaticamente');
+        if (!data || !Array.isArray(data.chamados)) return;
+        var remoteStr = data.chamados.map(function(c){
+          return c.id+c.status+c.sala+c.categoria+(c.descricao||'')+(c.prioridade||'')+(c.tecnico||'')+(c.fotosUrls||[]).length;
+        }).sort().join(',');
+        var localStr = chamados.map(function(c){
+          return c.id+c.status+c.sala+c.categoria+(c.descricao||'')+(c.prioridade||'')+(c.tecnico||'')+(c.fotosUrls||[]).length;
+        }).sort().join(',');
+        if (remoteStr === localStr) return;
+        data.chamados.forEach(function(remoto) {
+          var local = chamados.find(function(c){ return c.id === remoto.id; });
+          if (local && local.fotos && local.fotos.length && (!remoto.fotosUrls || !remoto.fotosUrls.length)) {
+            remoto.fotos = local.fotos;
+          } else if (remoto.fotosUrls && remoto.fotosUrls.length) {
+            remoto.fotos = remoto.fotosUrls;
           }
-        }
+        });
+        chamados = data.chamados;
+        salvarLocal();
+        renderLista();
+        toast('🔄 Atualizado');
       }).catch(function(){});
-    // Salas e categorias: só sincroniza se NÃO estiver na tela de config
-    if (!document.getElementById('screen-config').classList.contains('active')) {
-      fetch(scriptUrl + '?action=getConfig')
-        .then(function(res){ return res.json(); })
-        .then(function(data) {
-          if (data && data.status === 'ok') {
-            var mudou = false;
-            if (data.salas && data.salas.length && data.salas.join('|') !== salas.join('|')) {
-              salas = data.salas; mudou = true;
-            }
-            if (data.categorias && data.categorias.length && data.categorias.join('|') !== categorias.join('|')) {
-              categorias = data.categorias; mudou = true;
-            }
-            if (mudou) { salvarLocal(); }
-          }
-        }).catch(function(){});
-    }
-  }, 10000);
+  }, 5000);
+
+  // Config (salas/categorias): sync a cada 15 segundos, nunca na tela de config
+  configSyncTimer = setInterval(function() {
+    if (!scriptUrl || !sessao || !navigator.onLine) return;
+    if (document.getElementById('screen-config').classList.contains('active')) return;
+    fetch(scriptUrl + '?action=getConfig', { signal: AbortSignal.timeout(8000) })
+      .then(function(res){ return res.json(); })
+      .then(function(data) {
+        if (!data || data.status !== 'ok') return;
+        var mudou = false;
+        if (data.salas && data.salas.join('|') !== salas.join('|')) {
+          salas = data.salas; mudou = true;
+        }
+        if (data.categorias && data.categorias.join('|') !== categorias.join('|')) {
+          categorias = data.categorias; mudou = true;
+        }
+        if (mudou) salvarLocal();
+      }).catch(function(){});
+  }, 15000);
 }
 
 // ===================== NAVEGAÇÃO =====================
@@ -686,7 +700,7 @@ function goTo(s) {
   document.getElementById('nav-'+s).classList.add('active');
   // Pausa auto-sync na tela de config para não sobrescrever edições
   if (s === 'config') {
-    clearInterval(autoSyncTimer);
+    clearInterval(autoSyncTimer); clearInterval(configSyncTimer);
   } else {
     iniciarAutoSync();
   }
@@ -725,44 +739,48 @@ async function sincronizar() {
   } catch(e) { toast('⚠️ Falha na sincronização — usando dados locais'); }
 }
 
-async function postScript(payload) {
+// Envia para o Sheets e retorna resposta. Usa no-cors como fallback.
+async function enviar(payload) {
   if (!scriptUrl) return null;
+  if (!navigator.onLine) {
+    pendencias.push({ payload: payload, ts: Date.now() });
+    localStorage.setItem('pendencias', JSON.stringify(pendencias));
+    return null;
+  }
   try {
     var res = await fetch(scriptUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(10000)
     });
     return await res.json();
-  } catch(e) { return null; }
+  } catch(e) {
+    // GitHub Pages bloqueia leitura — usa no-cors e retorna ok simulado
+    try {
+      await fetch(scriptUrl, {
+        method: 'POST', mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload)
+      });
+      return { status: 'ok' };
+    } catch(e2) {
+      pendencias.push({ payload: payload, ts: Date.now() });
+      localStorage.setItem('pendencias', JSON.stringify(pendencias));
+      return null;
+    }
+  }
 }
 
+// postScriptSilent agora usa enviar() internamente
 async function postScriptSilent(payload) {
-  if (!scriptUrl) return false;
-  if (!navigator.onLine) {
-    // Sem internet — adiciona à fila de pendências
-    pendencias.push({ payload: payload, ts: Date.now() });
-    localStorage.setItem('pendencias', JSON.stringify(pendencias));
-    return false;
-  }
-  try {
-    await fetch(scriptUrl, {
-      method: 'POST', mode: 'no-cors',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload)
-    });
-    return true;
-  } catch(e) {
-    // Falhou mesmo com indicador online — guarda na fila
-    pendencias.push({ payload: payload, ts: Date.now() });
-    localStorage.setItem('pendencias', JSON.stringify(pendencias));
-    return false;
-  }
+  var res = await enviar(payload);
+  return res && res.status === 'ok';
 }
 
 // Processa fila de pendências quando volta a internet
 async function processarPendencias() {
-  if (!pendencias.length || !scriptUrl) return;
+  if (!pendencias.length || !scriptUrl || !navigator.onLine) return;
   toast('📡 Conexão restaurada — sincronizando ' + pendencias.length + ' item(s)...', 4000);
   var restantes = [];
   for (var i = 0; i < pendencias.length; i++) {
@@ -778,9 +796,7 @@ async function processarPendencias() {
   }
   pendencias = restantes;
   localStorage.setItem('pendencias', JSON.stringify(pendencias));
-  if (!restantes.length) {
-    setTimeout(sincronizar, 1000);
-  }
+  if (!restantes.length) setTimeout(sincronizar, 1500);
 }
 
 // Monitor de conectividade
@@ -1058,7 +1074,7 @@ async function salvarUsuario() {
     ?{action:'updateUser',user:{usuario:login,nome:nome,nivel:nivel,senha:senha,ativo:ativo}}
     :{action:'addUser',user:{usuario:login,nome:nome,nivel:nivel,senha:senha,ativo:'sim'}};
   toast('💾 Salvando...');
-  var res=await postScript(payload);
+  var res=await enviar(payload);
   if(res&&res.status==='ok'){
     toast('✅ Usuário salvo!');
     document.getElementById('overlay-user').style.display='none';
@@ -1071,7 +1087,7 @@ async function salvarUsuario() {
 
 async function excluirUsuario(login) {
   if(!confirm('Excluir usuário @'+login+'?'))return;
-  var res=await postScript({action:'deleteUser',usuario:login});
+  var res=await enviar({action:'deleteUser',usuario:login});
   if(res&&res.status==='ok'){ toast('🗑️ Usuário removido'); carregarUsuarios(); }
   else toast('❌ Erro ao excluir');
 }
@@ -1157,51 +1173,45 @@ function renderConfig() {
   document.getElementById('tags-cats').innerHTML=categorias.map(function(c,i){return '<span class="tag">'+c+'<button onclick="rmCat('+i+')">×</button></span>';}).join('');
   carregarUsuarios();
 }
-async function salvarConfig() {
-  salvarLocal();
-  renderConfig();
-  if (!navigator.onLine) { toast('💾 Salvo localmente'); return; }
-  toast('💾 Salvando no Sheets...');
-  try {
-    var res = await fetch(scriptUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'saveConfig', salas: salas, categorias: categorias })
-    });
-    var data = await res.json();
-    if (data && data.status === 'ok') {
-      toast('✅ Configurações salvas!');
-    } else {
-      toast('⚠️ Erro ao salvar no Sheets');
-    }
-  } catch(e) {
-    toast('⚠️ Sem conexão — salvo localmente');
-  }
+// Operações atômicas — cada ação é uma chamada independente ao Sheets
+// Não há risco de sobrescrever dados de outro usuário
+
+async function addSala() {
+  var inp = document.getElementById('inp-sala'), v = inp.value.trim();
+  if (!v) return;
+  if (salas.indexOf(v) !== -1) { toast('⚠️ Sala já existe'); inp.value = ''; return; }
+  salas.push(v); inp.value = '';
+  salvarLocal(); renderConfig();
+  var res = await enviar({ action: 'addSala', valor: v });
+  toast(res && res.status === 'ok' ? '✅ Sala adicionada!' : '💾 Sala salva localmente');
 }
 
-function addSala(){
-  var i=document.getElementById('inp-sala'), v=i.value.trim();
-  if(!v) return;
-  if(salas.indexOf(v)!==-1){ toast('⚠️ Sala já existe'); i.value=''; return; }
-  salas.push(v); i.value='';
-  salvarConfig();
+async function addCat() {
+  var inp = document.getElementById('inp-cat'), v = inp.value.trim();
+  if (!v) return;
+  if (categorias.indexOf(v) !== -1) { toast('⚠️ Categoria já existe'); inp.value = ''; return; }
+  categorias.push(v); inp.value = '';
+  salvarLocal(); renderConfig();
+  var res = await enviar({ action: 'addCategoria', valor: v });
+  toast(res && res.status === 'ok' ? '✅ Categoria adicionada!' : '💾 Categoria salva localmente');
 }
-function addCat(){
-  var i=document.getElementById('inp-cat'), v=i.value.trim();
-  if(!v) return;
-  if(categorias.indexOf(v)!==-1){ toast('⚠️ Categoria já existe'); i.value=''; return; }
-  categorias.push(v); i.value='';
-  salvarConfig();
+
+async function rmSala(i) {
+  if (!confirm('Remover "' + salas[i] + '"?')) return;
+  var v = salas[i];
+  salas.splice(i, 1);
+  salvarLocal(); renderConfig();
+  var res = await enviar({ action: 'removeSala', valor: v });
+  toast(res && res.status === 'ok' ? '🗑️ Sala removida' : '💾 Removido localmente');
 }
-function rmSala(i){
-  if(!confirm('Remover "'+salas[i]+'"?')) return;
-  salas.splice(i,1);
-  salvarConfig();
-}
-function rmCat(i){
-  if(!confirm('Remover "'+categorias[i]+'"?')) return;
-  categorias.splice(i,1);
-  salvarConfig();
+
+async function rmCat(i) {
+  if (!confirm('Remover "' + categorias[i] + '"?')) return;
+  var v = categorias[i];
+  categorias.splice(i, 1);
+  salvarLocal(); renderConfig();
+  var res = await enviar({ action: 'removeCategoria', valor: v });
+  toast(res && res.status === 'ok' ? '🗑️ Categoria removida' : '💾 Removido localmente');
 }
 function limparResolvidos(){
   var n=chamados.filter(function(c){return c.status==='resolvido';}).length;
@@ -1212,21 +1222,20 @@ function limparResolvidos(){
 }
 
 // ===================== INIT =====================
-// Se já tem sessão salva, entra direto (funciona offline também)
 if (sessao && scriptUrl) {
   iniciarApp();
-  // Se tem internet e pendências, processa
-  if (navigator.onLine && pendencias.length) {
-    setTimeout(processarPendencias, 2000);
+  // Sempre sincroniza do Sheets ao iniciar para limpar dados locais desatualizados
+  if (navigator.onLine) {
+    setTimeout(function() {
+      sincronizar();
+      if (pendencias.length) setTimeout(processarPendencias, 3000);
+    }, 1000);
   }
 } else if (sessao && !scriptUrl) {
-  // Tem sessão mas sem URL — mostra config
   document.getElementById('cfg-hint').style.display = 'block';
 } else if (!scriptUrl) {
-  // Primeira vez — mostra dica de configuração
   document.getElementById('cfg-hint').style.display = 'block';
 }
-// Indicador de status offline na tela de login
 if (!navigator.onLine && !sessao) {
   document.getElementById('login-err').textContent = '📵 Sem internet — faça login quando conectado pela primeira vez.';
   document.getElementById('login-err').classList.add('show');
