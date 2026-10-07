@@ -199,8 +199,8 @@ html,body{height:100%;background:var(--bg);font-family:-apple-system,BlinkMacSys
   /* Content desktop */
   .content{margin-left:var(--sidebar);margin-top:60px;padding:24px;height:calc(100vh - 60px);overflow-y:auto;flex:1}
 
-  /* Cards em grade na tela de chamados */
-  #screen-home .stats{grid-template-columns:repeat(4,1fr)}
+  /* Esconde cards de stats no desktop (ficam na tarja) */
+  #screen-home .stats{display:none!important}
   #lista{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;align-items:start}
   #lista .ch-card{margin-bottom:0}
 
@@ -221,7 +221,39 @@ html,body{height:100%;background:var(--bg);font-family:-apple-system,BlinkMacSys
 }
 
 /* Elemento oculto no mobile, visível no desktop */
-.nav-logo,.nav-footer,.nav-user,.nav-logout{display:none}
+.nav-logo,.nav-footer,.nav-user,.nav-logout,.nav-actions{display:none}
+.hdr-mobile-only{display:flex}
+.hdr-desktop-only{display:none}
+
+/* ===== DESKTOP ===== */
+@media(min-width:768px){
+  /* Mostra/oculta por breakpoint */
+  .hdr-mobile-only{display:none!important}
+  .hdr-desktop-only{display:flex!important}
+
+  /* Stats na tarja */
+  .hdr{justify-content:flex-start;padding:0 28px;gap:0}
+  .hdr-stats{display:flex;gap:0;flex:1}
+  .hdr-stat{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:10px 28px;border-right:1px solid rgba(255,255,255,.15);min-width:110px}
+  .hdr-stat:last-child{border-right:none}
+  .hdr-stat-n{font-size:22px;font-weight:700;line-height:1}
+  .hdr-stat-n.blue{color:#93C5FD}
+  .hdr-stat-n.amber{color:#FCD34D}
+  .hdr-stat-n.green{color:#86EFAC}
+  .hdr-stat-l{font-size:11px;opacity:.75;margin-top:2px}
+
+  /* Rodapé da sidebar */
+  .nav-footer{display:block!important;border-top:1px solid rgba(255,255,255,.1);width:100%}
+  .nav-user{display:flex!important;padding:12px 16px;align-items:center;gap:10px}
+  .nav-user strong{color:#fff;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .nav-user span{color:rgba(255,255,255,.5);font-size:11px}
+  .nav-actions{display:flex!important;border-top:1px solid rgba(255,255,255,.08);padding:8px 12px;gap:6px}
+  .nav-action-btn{flex:1;background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:8px;color:rgba(255,255,255,.8);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
+  .nav-action-btn:hover{background:rgba(255,255,255,.2);color:#fff}
+  .nav-action-btn.logout{background:rgba(239,68,68,.2);color:#FCA5A5}
+  .nav-action-btn.logout:hover{background:rgba(239,68,68,.35);color:#fff}
+  .nav-action-btn svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+}
 </style>
 </head>
 <body>
@@ -273,11 +305,12 @@ html,body{height:100%;background:var(--bg);font-family:-apple-system,BlinkMacSys
 <div class="app" id="main-app" style="display:none">
 
   <div class="hdr">
-    <div class="hdr-left">
+    <!-- Mobile: título + botões -->
+    <div class="hdr-left hdr-mobile-only">
       <h1>Chamados Estruturais</h1>
       <p id="user-chip">👤 Carregando...</p>
     </div>
-    <div class="hdr-btns">
+    <div class="hdr-btns hdr-mobile-only">
       <button class="icon-btn" onclick="sincronizar()" title="Sincronizar">
         <svg viewBox="0 0 24 24"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
       </button>
@@ -287,6 +320,13 @@ html,body{height:100%;background:var(--bg);font-family:-apple-system,BlinkMacSys
       <button class="icon-btn" onclick="fazerLogout()" title="Sair">
         <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
       </button>
+    </div>
+    <!-- Desktop: stats na tarja -->
+    <div class="hdr-stats hdr-desktop-only">
+      <div class="hdr-stat"><span class="hdr-stat-n blue" id="hst-ab">0</span><span class="hdr-stat-l">Abertos</span></div>
+      <div class="hdr-stat"><span class="hdr-stat-n amber" id="hst-an">0</span><span class="hdr-stat-l">Em andamento</span></div>
+      <div class="hdr-stat"><span class="hdr-stat-n green" id="hst-re">0</span><span class="hdr-stat-l">Resolvidos</span></div>
+      <div class="hdr-stat"><span class="hdr-stat-n" id="hst-to">0</span><span class="hdr-stat-l">Total</span></div>
     </div>
   </div>
 
@@ -427,14 +467,22 @@ html,body{height:100%;background:var(--bg);font-family:-apple-system,BlinkMacSys
     </button>
     <div class="nav-footer">
       <div class="nav-user">
-        <div>
+        <div style="flex:1;min-width:0">
           <strong id="nav-user-nome">—</strong>
-          <span id="nav-user-nivel"></span>
+          <span id="nav-user-nivel" style="display:block;margin-top:2px"></span>
         </div>
       </div>
-      <button class="nav-btn nav-logout" onclick="fazerLogout()" style="display:flex;color:var(--red-d)">
-        <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>Sair
-      </button>
+      <div class="nav-actions">
+        <button class="nav-action-btn" onclick="sincronizar()" title="Sincronizar">
+          <svg viewBox="0 0 24 24"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+        </button>
+        <button class="nav-action-btn" onclick="exportarTodos()" title="Exportar WhatsApp">
+          <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
+        </button>
+        <button class="nav-action-btn logout" onclick="fazerLogout()" title="Sair">
+          <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>
     </div>
   </nav>
 </div>
@@ -1105,10 +1153,24 @@ function badgeStatus(s) {
 }
 
 function updateStats() {
-  document.getElementById('st-ab').textContent=chamados.filter(function(c){return c.status==='aberto';}).length;
-  document.getElementById('st-an').textContent=chamados.filter(function(c){return c.status==='andamento';}).length;
-  document.getElementById('st-re').textContent=chamados.filter(function(c){return c.status==='resolvido';}).length;
-  document.getElementById('st-to').textContent=chamados.length;
+  var ab = chamados.filter(function(c){return c.status==='aberto';}).length;
+  var an = chamados.filter(function(c){return c.status==='andamento';}).length;
+  var re = chamados.filter(function(c){return c.status==='resolvido';}).length;
+  var to = chamados.length;
+  // Cards mobile
+  document.getElementById('st-ab').textContent = ab;
+  document.getElementById('st-an').textContent = an;
+  document.getElementById('st-re').textContent = re;
+  document.getElementById('st-to').textContent = to;
+  // Stats na tarja desktop
+  var hab = document.getElementById('hst-ab');
+  var han = document.getElementById('hst-an');
+  var hre = document.getElementById('hst-re');
+  var hto = document.getElementById('hst-to');
+  if (hab) hab.textContent = ab;
+  if (han) han.textContent = an;
+  if (hre) hre.textContent = re;
+  if (hto) hto.textContent = to;
 }
 
 function renderLista() {
