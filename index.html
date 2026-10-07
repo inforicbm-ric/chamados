@@ -1017,8 +1017,9 @@ function ciclarStatus(idx) {
     chamados[idx].dataResolvido = '';
   }
   salvarLocal();
-  postScriptSilent({action:'updateStatus',id:chamados[idx].id,status:chamados[idx].status,dataResolvido:chamados[idx].dataResolvido||''});
   renderLista();
+  // Envia updateRow completo para garantir que dataResolvido seja salvo
+  enviar({ action: 'updateRow', data: chamados[idx] });
 }
 
 function excluir(idx) {
